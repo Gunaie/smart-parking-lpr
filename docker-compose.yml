@@ -1,0 +1,31 @@
+services:
+  mqtt:
+    image: docker.m.daocloud.io/eclipse-mosquitto:2
+    container_name: mhys-mqtt
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto_local.conf:/mosquitto/config/mosquitto.conf:ro
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: mhys-app
+    ports:
+      - "8765:8765"
+    environment:
+      - MQTT_BROKER=mqtt
+      - MQTT_PORT=1883
+    depends_on:
+      - mqtt
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+      - ./outputs:/app/outputs
+      - ./plate_pipeline.py:/app/plate_pipeline.py:ro
+      - ./config.py:/app/config.py:ro
+      - ./server.py:/app/server.py:ro
+      - ./tts_utils.py:/app/tts_utils.py:ro
+      - ./static:/app/static:ro
+    restart: unless-stopped
