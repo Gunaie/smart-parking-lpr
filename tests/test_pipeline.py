@@ -6,10 +6,15 @@ import pytest
 
 from config import settings
 
+HAS_MODEL = settings.BEST_PT.exists()
+skip_no_model = pytest.mark.skipif(
+    not HAS_MODEL, reason="需要 best.pt 模型（CI 环境无模型时跳过）")
+
 
 class TestPipeline:
     """plate_pipeline 识别精度回归。"""
 
+    @skip_no_model
     def test_frontal_plate(self, recognizer, sample_images):
         """正面近景车牌：高置信度识别。"""
         results = recognizer(sample_images["front"], save=False)
@@ -17,12 +22,14 @@ class TestPipeline:
         assert results[0]["plate"] == "沪AD07979"
         assert results[0]["confidence"] > 0.95
 
+    @skip_no_model
     def test_dataset_image_train(self, recognizer, sample_images):
         """数据集样本 1。"""
         results = recognizer(sample_images["dataset_train"], save=False)
         assert len(results) == 1
         assert results[0]["plate"] == "皖AD05119"
 
+    @skip_no_model
     def test_dataset_image_val(self, recognizer, sample_images):
         """数据集样本 2。"""
         results = recognizer(sample_images["dataset_val"], save=False)

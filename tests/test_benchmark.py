@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 """性能基准测试：识别延迟、API 响应时间、内存占用。"""
 import json
+import socket
 import time
 import tracemalloc
-from pathlib import Path
 
 import pytest
 import requests
@@ -11,6 +11,16 @@ import requests
 from config import settings
 
 BASE = "http://localhost:8765"
+
+HAS_MODEL = settings.BEST_PT.exists()
+
+
+def _server_running() -> bool:
+    try:
+        with socket.create_connection(("localhost", 8765), timeout=1):
+            return True
+    except OSError:
+        return False
 
 
 class TestPerformance:
@@ -28,6 +38,7 @@ class TestPerformance:
         print(f"\n  [Latency] 单张识别: {avg:.3f}s (min={min(times):.3f}, max={max(times):.3f})")
         assert avg < 5.0, f"识别太慢: {avg:.3f}s"
 
+    @pytest.mark.skipif(not _server_running(), reason="需要服务运行")
     def test_api_entry_latency(self, sample_images):
         """API 进场接口端到端延迟。"""
         requests.post(f"{BASE}/reset")
@@ -53,12 +64,15 @@ class TestPerformance:
         print(f"\n  [Memory] 峰值: {peak_mb:.1f}MB")
         assert peak_mb < 2000, f"内存过高: {peak_mb:.1f}MB"
 
+    @pytest.mark.skipif(not HAS_MODEL, reason="需要 best.pt 模型")
     def test_model_file_size(self):
         """模型文件大小。"""
         size_mb = settings.BEST_PT.stat().st_size / 1024 / 1024
         print(f"\n  [Model] 大小: {size_mb:.1f}MB")
         assert size_mb < 50, f"模型过大: {size_mb:.1f}MB"
 
+    @pytest.mark.skipif(not HAS_MODEL or not _server_running(),
+                        reason="需要 best.pt 模型和服务运行")
     def test_benchmark_report(self, recognizer, sample_images):
         """生成完整基准报告。"""
         report = {"timestamp": time.strftime("%Y-%m-%d %H:%M:%S"), "metrics": {}}
