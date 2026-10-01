@@ -91,6 +91,7 @@ docker compose up -d
 
 ```
 ├── config.py              # 全局配置（路径/MQTT/TTS/车位）
+├── log_utils.py           # 统一日志（控制台+文件轮转+请求ID）
 ├── plate_pipeline.py      # PlateRecognizer：检测→裁剪→OCR→兜底
 ├── train.py               # YOLO11n 训练（CPU 可跑）
 ├── gate_control.py        # MQTT 闸机指令
@@ -100,9 +101,25 @@ docker compose up -d
 ├── server.py              # FastAPI 后端（8 个路由）
 ├── static/index.html      # Vue3 前端
 ├── tests/                 # pytest 测试套件
+├── logs/                  # 运行日志（app.log，5MB×5 轮转）
 ├── models/best.pt         # 训练产出（20.3MB）
 ├── dataset/               # CCPD 1875 张 + dataset.yaml
 └── samples/               # 测试图片
+```
+
+## 日志系统
+
+统一使用 `logging` 模块（`log_utils.py`），替代 `print`：
+
+- **双输出**：控制台 + 文件 `logs/app.log`（5MB × 5 轮转）
+- **请求 ID 透传**：每个 HTTP 请求注入 `X-Request-ID`，跨模块（server→pipeline→gate→tts）日志带同一 ID，便于链路追踪
+- **日志格式**：`时间 [级别] 模块 [请求ID]: 消息`
+- **噪音抑制**：ultralytics / uvicorn.access 降级为 WARNING
+
+```
+2026-10-01 14:51:26 [INFO] server [entry001]: 进场: 沪AD07979 -> A1
+2026-10-01 14:51:26 [INFO] gate   [entry001]: Gate OPEN
+2026-10-01 14:51:26 [INFO] gate   [entry001]: [MQTT] -> {"Servo": 4}   [OK]
 ```
 
 ---
