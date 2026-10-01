@@ -27,5 +27,8 @@ services:
       - ./config.py:/app/config.py:ro
       - ./server.py:/app/server.py:ro
       - ./tts_utils.py:/app/tts_utils.py:ro
+      - ./gate_control.py:/app/gate_control.py:ro
+      - ./log_utils.py:/app/log_utils.py:ro
+      - ./logs:/app/logs
       - ./static:/app/static:ro
     restart: unless-stopped

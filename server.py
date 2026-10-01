@@ -27,6 +27,10 @@ from sse_starlette.sse import EventSourceResponse
 from config import settings
 from plate_pipeline import PlateRecognizer
 import tts_utils
+from log_utils import get_logger, setup_logging, new_request_id, set_request_id
+
+setup_logging()
+logger = get_logger("server")
 
 EXCEL_HEADERS = ["License Plate", "Entry Time", "Space"]
 
@@ -37,6 +41,16 @@ sse_queues: set[asyncio.Queue] = set()
 camera: cv2.VideoCapture | None = None
 gate_enabled: bool = True
 tts_enabled: bool = True
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """为每个请求注入 request_id，日志与响应头透传。"""
+    req_id = request.headers.get("X-Request-ID", new_request_id())
+    set_request_id(req_id)
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = req_id
+    return response
 
 
 # ===================== Excel 管理 =====================
@@ -131,7 +145,7 @@ def _gate_open_close():
         time.sleep(settings.GATE_DELAY)
         close_gate()
     except Exception as e:
-        print(f"[Gate] 异常: {e}")
+        logger.warning(f"[Gate] 异常: {e}")
 
 
 def _speak(text):
@@ -140,7 +154,7 @@ def _speak(text):
     try:
         tts_utils.speak(text)
     except Exception as e:
-        print(f"[TTS] 异常: {e}")
+        logger.warning(f"[TTS] 异常: {e}")
 
 
 # ===================== SSE =====================
@@ -200,16 +214,20 @@ async def entry(file: UploadFile = File(...)):
     img_bytes = await file.read()
     plate, det = await asyncio.to_thread(_recognize_one, img_bytes)
     if not plate:
+        logger.warning("进场识别失败：未检测到车牌")
         raise HTTPException(status_code=422, detail="未检测到车牌")
 
     if _exists(plate):
+        logger.info(f"进场拒绝（重复）: {plate}")
         raise HTTPException(status_code=409, detail="重复进场")
 
     space = _free_space()
     if not space:
+        logger.info(f"进场拒绝（车位满）: {plate}")
         raise HTTPException(status_code=409, detail="车位已满")
 
     _add(plate, space)
+    logger.info(f"进场: {plate} -> {space}")
     payload = {"type": "entry", "plate": plate, "space": space,
                "entry_time": datetime.now().strftime("%Y-%m-%d %H:%M:%S")}
     await sse_broadcast({"event": "entry", "data": json.dumps(payload)})
@@ -227,14 +245,17 @@ async def exit(file: UploadFile = File(...)):
     img_bytes = await file.read()
     plate, det = await asyncio.to_thread(_recognize_one, img_bytes)
     if not plate:
+        logger.warning("离场识别失败：未检测到车牌")
         raise HTTPException(status_code=422, detail="未检测到车牌")
 
     rec = _exists(plate)
     if not rec:
+        logger.info(f"离场拒绝（无记录）: {plate}")
         raise HTTPException(status_code=404, detail="无入场记录")
 
     space = rec.get("space", "")
     _delete(plate)
+    logger.info(f"离场: {plate} (车位 {space})")
     payload = {"type": "exit", "plate": plate, "space": space}
     await sse_broadcast({"event": "exit", "data": json.dumps(payload)})
 
@@ -364,10 +385,10 @@ def main():
     settings.ensure_runtime_dirs()
     _ensure_excel()
 
-    print("[Init] 加载识别流水线...")
+    logger.info("[Init] 加载识别流水线...")
     recognizer = PlateRecognizer(args.model)
-    print(f"[Init] gate={gate_enabled} tts={tts_enabled}")
-    print(f"[Init] http://{args.host}:{args.port}")
+    logger.info(f"[Init] gate={gate_enabled} tts={tts_enabled}")
+    logger.info(f"[Init] http://{args.host}:{args.port}")
 
     uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 

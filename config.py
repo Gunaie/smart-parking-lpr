@@ -21,6 +21,7 @@ class Settings:
     EXCEL_PATH: Path = RECORD_DIR / "parking_record.xlsx"
     UPLOADS_DIR: Path = BASE_DIR / "uploads"
     OUTPUTS_DIR: Path = BASE_DIR / "outputs"
+    LOG_DIR: Path = BASE_DIR / "logs"
 
     # ---------- 识别参数 ----------
     YOLO_CONF: float = 0.25        # YOLO 置信度阈值

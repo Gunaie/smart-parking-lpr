@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """闸机控制：通过 MQTT 向实训箱/模拟器发送舵机抬杆/落杆指令。
 
 Topic: /sys/thing/s2c/msg
@@ -12,6 +12,9 @@ import time
 import paho.mqtt.client as mqtt
 
 from config import settings
+from log_utils import get_logger
+
+logger = get_logger("gate")
 
 
 class GateController:
@@ -40,15 +43,15 @@ class GateController:
         result.wait_for_publish(timeout=5)
         ok = result.rc == mqtt.MQTT_ERR_SUCCESS
         status = "OK" if ok else f"rc={result.rc}"
-        print(f"[MQTT] -> {msg}   [{status}]")
+        logger.info(f"[MQTT] -> {msg}   [{status}]")
         return ok
 
     def open(self):
-        print("Gate OPEN")
+        logger.info("Gate OPEN")
         return self.publish(settings.SERVO_OPEN)
 
     def close(self):
-        print("Gate CLOSE")
+        logger.info("Gate CLOSE")
         return self.publish(settings.SERVO_CLOSE)
 
 

@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """TTS 语音播报模块。
 
 主路径：edge-tts（在线，微软神经语音）生成 mp3 → playsound3 播放。
@@ -11,6 +11,9 @@ import hashlib
 from pathlib import Path
 
 from config import settings
+from log_utils import get_logger
+
+logger = get_logger("tts")
 
 
 def _cache_path(text: str) -> Path:
@@ -33,7 +36,7 @@ def _generate_edge(text: str) -> Path | None:
         asyncio.run(_run())
         return out if out.exists() else None
     except Exception as e:
-        print(f"[TTS] edge-tts 生成失败，转离线兜底: {e}")
+        logger.warning(f"[TTS] edge-tts 生成失败，转离线兜底: {e}")
         return None
 
 
@@ -44,7 +47,7 @@ def _play(path: Path) -> bool:
         playsound(str(path))
         return True
     except Exception as e:
-        print(f"[TTS] 播放失败: {e}")
+        logger.warning(f"[TTS] 播放失败: {e}")
         return False
 
 
@@ -57,7 +60,7 @@ def _speak_sapi(text: str) -> bool:
         voice.Speak(text)
         return True
     except Exception as e:
-        print(f"[TTS] SAPI 兜底也失败: {e}")
+        logger.error(f"[TTS] SAPI 兜底也失败: {e}")
         return False
 
 
@@ -65,7 +68,7 @@ def speak(text: str) -> bool:
     """朗读一段文字，优先 edge-tts，失败用 SAPI。"""
     if not settings.TTS_ENABLED:
         return False
-    print(f"[TTS] {text}")
+    logger.info(f"[TTS] {text}")
     mp3 = _generate_edge(text)
     if mp3 is not None:
         return _play(mp3)

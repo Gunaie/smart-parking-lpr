@@ -1,4 +1,4 @@
-# -*- coding: utf-8 -*-
+﻿# -*- coding: utf-8 -*-
 """两阶段车牌识别流水线。
 
 Stage 1（detect）：YOLO 输出车牌边界框；best.pt 未训练前，用 HyperLPR3
@@ -16,6 +16,9 @@ import hyperlpr3 as lpr3
 from PIL import Image, ImageDraw, ImageFont
 
 from config import settings
+from log_utils import get_logger
+
+logger = get_logger("pipeline")
 
 
 def _iou(box_a, box_b) -> float:
@@ -64,17 +67,17 @@ def put_chinese_text(image: np.ndarray, text: str, org, color=(0, 0, 255),
 
 class PlateRecognizer:
     def __init__(self, yolo_model_path: str | None = None):
-        print("[Init] 加载 HyperLPR3 识别器...")
+        logger.info("[Init] 加载 HyperLPR3 识别器...")
         self.lpr = lpr3.LicensePlateCatcher(detect_level=lpr3.DETECT_LEVEL_LOW)
 
         self.yolo = None
         path = Path(yolo_model_path) if yolo_model_path else settings.BEST_PT
         if path and path.exists():
             from ultralytics import YOLO
-            print(f"[Init] 加载 YOLO 模型: {path}")
+            logger.info(f"[Init] 加载 YOLO 模型: {path}")
             self.yolo = YOLO(str(path))
         else:
-            print(f"[Init] 未找到 YOLO 权重（{path}），detect() 使用 HyperLPR3 内置检测兜底。")
+            logger.warning(f"[Init] 未找到 YOLO 权重（{path}），detect() 使用 HyperLPR3 内置检测兜底。")
 
     # ---------------- Stage 1：检测 ----------------
     def detect(self, image: np.ndarray) -> list[dict]:
@@ -82,7 +85,7 @@ class PlateRecognizer:
             boxes = self._detect_yolo(image)
             if boxes:
                 return boxes
-            print("  [Detect] YOLO 无结果，改用 HyperLPR3 内置检测兜底。")
+            logger.debug("  [Detect] YOLO 无结果，改用 HyperLPR3 内置检测兜底。")
         return self._detect_lpr_fallback(image)
 
     def _detect_yolo(self, image: np.ndarray) -> list[dict]:
@@ -96,7 +99,7 @@ class PlateRecognizer:
                 cls_name = self.yolo.names.get(cls_id, str(cls_id))
                 boxes.append({"bbox": [x1, y1, x2, y2],
                               "confidence": conf, "class": cls_name})
-                print(f"  [Detect] {cls_name} @ [{x1:.0f}, {y1:.0f}, "
+                logger.debug(f"  [Detect] {cls_name} @ [{x1:.0f}, {y1:.0f}, "
                       f"{x2:.0f}, {y2:.0f}] conf={conf:.2%}")
         return boxes
 
@@ -107,7 +110,7 @@ class PlateRecognizer:
             x1, y1, x2, y2 = map(float, rect)
             boxes.append({"bbox": [x1, y1, x2, y2],
                           "confidence": float(rec_conf), "class": "car_card"})
-            print(f"  [Detect-LPR] car_card @ [{x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f}] "
+            logger.debug(f"  [Detect-LPR] car_card @ [{x1:.0f}, {y1:.0f}, {x2:.0f}, {y2:.0f}] "
                   f"(置信度取OCR值) {code} conf={rec_conf:.2%}")
         return boxes
 
@@ -150,7 +153,7 @@ class PlateRecognizer:
                 if wide_results and _valid_len(wide_results[0][0]):
                     results = wide_results
                     plate_crop = wide_crop
-                    print("  [Recognize] 首遍结果可疑，宽裁剪重裁成功。")
+                    logger.debug("  [Recognize] 首遍结果可疑，宽裁剪重裁成功。")
 
         # 获取整帧 LPR 结果（带四点透视矫正，对倾斜更鲁棒）
         full_results = [
@@ -164,22 +167,22 @@ class PlateRecognizer:
             # 裁剪与整帧长度不一致时，优先整帧（倾斜场景裁剪易误识别）
             if _valid_len(crop_code) and _valid_len(full_code) and len(crop_code) != len(full_code):
                 results = full_results
-                print(f"  [Recognize] 裁剪({crop_code})与整帧({full_code})长度不一致，取整帧。")
+                logger.debug(f"  [Recognize] 裁剪({crop_code})与整帧({full_code})长度不一致，取整帧。")
 
         # 仍异常 → 回退整帧
         if not results or not _valid_len(results[0][0]):
             valid_full = [r for r in full_results if _valid_len(r[0])]
             if valid_full:
                 results = valid_full
-                print("  [Recognize] 裁剪结果长度异常，已用整帧 LPR 合法结果兜底。")
+                logger.info("  [Recognize] 裁剪结果长度异常，已用整帧 LPR 合法结果兜底。")
 
         if not results:
-            print("  [Recognize] 未识别到车牌")
+            logger.info("  [Recognize] 未识别到车牌")
             return None
 
         plate_code, confidence, plate_type, _ = max(results, key=lambda r: r[1])
         ch, cw = plate_crop.shape[:2]
-        print(f"  [Recognize] 裁剪图尺寸: {cw}x{ch} -> {plate_code} "
+        logger.info(f"  [Recognize] 裁剪图尺寸: {cw}x{ch} -> {plate_code} "
               f"conf={confidence:.2%} type={plate_type}")
         return {"plate": plate_code, "confidence": float(confidence),
                 "type": int(plate_type), "crop": plate_crop}
@@ -221,7 +224,7 @@ class PlateRecognizer:
 
         result_path = save_dir / f"{stem}_result.jpg"
         cv2.imwrite(str(result_path), final)
-        print(f"[Save] {detect_path.name}；裁剪图 {len(crop_paths)} 张；{result_path.name}")
+        logger.info(f"[Save] {detect_path.name}；裁剪图 {len(crop_paths)} 张；{result_path.name}")
         return detect_path, crop_paths, result_path
 
     # ---------------- 端到端调度 ----------------
@@ -230,7 +233,7 @@ class PlateRecognizer:
         if image is None:
             raise FileNotFoundError(f"无法读取图片: {image_path}")
         h, w = image.shape[:2]
-        print(f"[Pipeline] {image_path}  尺寸: {w}x{h}")
+        logger.info(f"[Pipeline] {image_path}  尺寸: {w}x{h}")
 
         detections = self.detect(image)
         recognized = [self.recognize(image, d["bbox"]) for d in detections]
@@ -257,9 +260,9 @@ def main():
     recognizer = PlateRecognizer(args.model)
 
     for image_path in args.images:
-        print("=" * 70)
+        logger.info("=" * 70)
         results = recognizer(image_path, save=not args.no_save)
-        print("[Result]", results if results else "未识别到车牌")
+        logger.info(f"[Result] {results if results else '未识别到车牌'}")
 
 
 if __name__ == "__main__":
