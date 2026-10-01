@@ -24,7 +24,8 @@ class Settings:
 
     # ---------- 识别参数 ----------
     YOLO_CONF: float = 0.25        # YOLO 置信度阈值
-    PADDING_RATIO: float = 0.15    # OCR 裁剪外扩比例
+    PADDING_RATIO: float = 0.20    # OCR 裁剪外扩比例（首遍）
+    PADDING_RATIO_WIDE: float = 0.50  # 结果可疑时的宽裁剪外扩比例
     CLASS_NAMES = {0: "license_plate"}  # YOLO 类别（与数据集一致）
 
     # ---------- 车位 ----------

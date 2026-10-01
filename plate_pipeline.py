@@ -112,14 +112,15 @@ class PlateRecognizer:
         return boxes
 
     # ---------------- Stage 2：裁剪 + OCR ----------------
-    @staticmethod
-    def _crop_with_padding(image: np.ndarray, bbox) -> np.ndarray | None:
-        """按 PADDING_RATIO 外扩裁剪，边界保护，返回裁剪后的图片或 None。"""
+    def _crop_with_padding(self, image: np.ndarray, bbox,
+                           ratio: float | None = None) -> np.ndarray | None:
+        """按指定比例外扩裁剪，边界保护，返回裁剪后的图片或 None。"""
+        ratio = ratio if ratio is not None else settings.PADDING_RATIO
         x1, y1, x2, y2 = map(int, bbox)
         h, w = image.shape[:2]
         bw, bh = x2 - x1, y2 - y1
-        pad_w = int(bw * settings.PADDING_RATIO)
-        pad_h = int(bh * settings.PADDING_RATIO)
+        pad_w = int(bw * ratio)
+        pad_h = int(bh * ratio)
 
         x1 = max(0, x1 - pad_w)
         y1 = max(0, y1 - pad_h)
@@ -131,31 +132,55 @@ class PlateRecognizer:
         return image[y1:y2, x1:x2]
 
     def recognize(self, image: np.ndarray, bbox) -> dict | None:
-        """裁剪→HyperLPR3 OCR。"""
+        """裁剪→HyperLPR3 OCR。首遍紧裁剪；结果可疑时宽裁剪重裁；仍异常回退整帧。"""
         plate_crop = self._crop_with_padding(image, bbox)
         if plate_crop is None:
             return None
-        ch, cw = plate_crop.shape[:2]
-        print(f"  [Recognize] 裁剪图尺寸: {cw}x{ch}, "
-              f"像素范围: [{plate_crop.min()}, {plate_crop.max()}]")
+
+        def _valid_len(code: str) -> bool:
+            return len(code) in (7, 8)  # 中国车牌：蓝牌7位 / 新能源8位
 
         results = self.lpr(plate_crop)
-        if not results:
-            # 二级兜底：矩形裁剪（保留透视畸变）OCR 失败时，改用整帧 LPR
-            # 结果中与该框 IoU 最大者（整帧 LPR 自带四点透视矫正）。
-            results = [
-                r for r in self.lpr(image)
-                if _iou(r[3], bbox) > 0.3
-            ]
-            if results:
-                print("  [Recognize] 裁剪 OCR 失败，已用整帧 LPR 结果按 IoU 匹配兜底。")
+
+        # 首遍结果长度异常 → 用宽裁剪重裁一次
+        if not results or not _valid_len(results[0][0]):
+            wide_crop = self._crop_with_padding(image, bbox, settings.PADDING_RATIO_WIDE)
+            if wide_crop is not None:
+                wide_results = self.lpr(wide_crop)
+                if wide_results and _valid_len(wide_results[0][0]):
+                    results = wide_results
+                    plate_crop = wide_crop
+                    print("  [Recognize] 首遍结果可疑，宽裁剪重裁成功。")
+
+        # 获取整帧 LPR 结果（带四点透视矫正，对倾斜更鲁棒）
+        full_results = [
+            r for r in self.lpr(image)
+            if _iou(r[3], bbox) > 0.3
+        ]
+
+        if results and full_results:
+            crop_code = results[0][0]
+            full_code = full_results[0][0]
+            # 裁剪与整帧长度不一致时，优先整帧（倾斜场景裁剪易误识别）
+            if _valid_len(crop_code) and _valid_len(full_code) and len(crop_code) != len(full_code):
+                results = full_results
+                print(f"  [Recognize] 裁剪({crop_code})与整帧({full_code})长度不一致，取整帧。")
+
+        # 仍异常 → 回退整帧
+        if not results or not _valid_len(results[0][0]):
+            valid_full = [r for r in full_results if _valid_len(r[0])]
+            if valid_full:
+                results = valid_full
+                print("  [Recognize] 裁剪结果长度异常，已用整帧 LPR 合法结果兜底。")
 
         if not results:
             print("  [Recognize] 未识别到车牌")
             return None
 
         plate_code, confidence, plate_type, _ = max(results, key=lambda r: r[1])
-        print(f"  [Recognize] -> {plate_code} conf={confidence:.2%} type={plate_type}")
+        ch, cw = plate_crop.shape[:2]
+        print(f"  [Recognize] 裁剪图尺寸: {cw}x{ch} -> {plate_code} "
+              f"conf={confidence:.2%} type={plate_type}")
         return {"plate": plate_code, "confidence": float(confidence),
                 "type": int(plate_type), "crop": plate_crop}
 
