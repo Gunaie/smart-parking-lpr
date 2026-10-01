@@ -1,0 +1,20 @@
+# AI 检测与识别
+ultralytics
+opencv-python-headless
+numpy
+hyperlpr3
+onnxruntime
+
+# 数据与通信
+openpyxl
+paho-mqtt
+
+# Web 服务
+fastapi
+uvicorn
+sse-starlette
+python-multipart
+
+# 语音
+edge-tts
+playsound3
