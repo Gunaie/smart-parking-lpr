@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>智能社区车牌识别系统</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; color: #333; }
+  header { background: #1e3a8a; color: #fff; padding: 14px 24px; }
+  header h1 { font-size: 20px; }
+  .stats { display: flex; gap: 24px; margin-top: 8px; }
+  .stat { font-size: 14px; }
+  .stat b { font-size: 20px; margin-left: 6px; }
+  .container { display: flex; gap: 16px; padding: 16px; }
+  .parking { flex: 1; background: #fff; border-radius: 8px; padding: 16px; }
+  .grid { display: grid; grid-template-columns: 28px repeat(6, 1fr); gap: 6px; }
+  .row-label { display: flex; align-items: center; justify-content: center;
+    font-weight: bold; color: #666; }
+  .space { aspect-ratio: 1.4/1; border: 2px dashed #bbb; border-radius: 4px;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    font-size: 12px; position: relative; background: #fafafa; }
+  .space.occupied { border-style: solid; border-color: #16a34a; background: #dcfce7; }
+  .space .plate { font-weight: bold; color: #14532d; font-size: 13px; }
+  .space .time { color: #666; font-size: 10px; margin-top: 2px; }
+  .anim-car { position: absolute; width: 40px; height: 22px; background: #dc2626;
+    border-radius: 4px; transition: all 1s ease-in-out; display: none; z-index: 10;
+    color: #fff; font-size: 10px; text-align: center; line-height: 22px; }
+  .anim-car.show { display: block; }
+  .panel { width: 340px; background: #fff; border-radius: 8px; padding: 16px;
+    display: flex; flex-direction: column; gap: 12px; }
+  .panel h3 { font-size: 15px; border-bottom: 1px solid #eee; padding-bottom: 6px; }
+  .mode { display: flex; gap: 8px; }
+  .mode button { flex: 1; padding: 8px; border: 1px solid #ddd; background: #fff;
+    cursor: pointer; border-radius: 4px; }
+  .mode button.active { background: #1e3a8a; color: #fff; border-color: #1e3a8a; }
+  .camera { width: 100%; aspect-ratio: 16/9; background: #000; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; color: #aaa;
+    overflow: hidden; }
+  .camera img { width: 100%; height: 100%; object-fit: cover; }
+  .upload { border: 2px dashed #ccc; padding: 16px; text-align: center; cursor: pointer;
+    border-radius: 4px; }
+  .upload:hover { border-color: #1e3a8a; }
+  .upload input { display: none; }
+  .submit { padding: 10px; background: #16a34a; color: #fff; border: none;
+    border-radius: 4px; cursor: pointer; font-size: 15px; }
+  .submit:disabled { background: #9ca3af; cursor: not-allowed; }
+  .submit.snapshot { background: #0ea5e9; }
+  .submit.reset { background: #6b7280; }
+  .records { max-height: 260px; overflow-y: auto; font-size: 13px; }
+  .record { padding: 6px 8px; border-bottom: 1px solid #f0f0f0; }
+  .record.entry { color: #16a34a; }
+  .record.exit { color: #dc2626; }
+  .msg { padding: 8px; border-radius: 4px; font-size: 13px; display: none; }
+  .msg.show { display: block; }
+  .msg.error { background: #fee2e2; color: #991b1b; }
+  .msg.success { background: #dcfce7; color: #14532d; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>🚗 智能社区车牌识别系统</h1>
+    <div class="stats">
+      <div class="stat">总车位<b>{{ state.total }}</b></div>
+      <div class="stat">在场<b>{{ state.occupied }}</b></div>
+      <div class="stat">空闲<b>{{ state.free }}</b></div>
+      <div class="stat">通行<b>{{ records.length }}</b></div>
+    </div>
+  </header>
+  <div class="container">
+    <div class="parking">
+      <div class="grid">
+        <template v-for="r in rows" :key="r">
+          <div class="row-label">{{ r }}</div>
+          <div v-for="c in cols" :key="r+c"
+               class="space" :class="{occupied: state.spaces[r+c]}">
+            <div class="plate">{{ state.spaces[r+c]?.plate || r+c }}</div>
+            <div class="time" v-if="state.spaces[r+c]">{{ state.spaces[r+c].entry_time }}</div>
+          </div>
+        </template>
+      </div>
+      <div class="anim-car" :class="{show: animCar.show}"
+           :style="animCar.style">{{ animCar.text }}</div>
+    </div>
+    <div class="panel">
+      <h3>控制面板</h3>
+      <div class="mode">
+        <button :class="{active: mode==='entry'}" @click="mode='entry'">进场</button>
+        <button :class="{active: mode==='exit'}" @click="mode='exit'">离场</button>
+      </div>
+      <h3>摄像头</h3>
+      <div class="camera">
+        <img :src="cameraSrc" alt="摄像头" v-if="cameraSrc" />
+        <span v-else>摄像头未连接</span>
+      </div>
+      <button class="submit snapshot" @click="snapshot" :disabled="busy">拍照识别</button>
+      <h3>图片上传</h3>
+      <label class="upload">
+        <span>{{ fileName || '点击或拖拽上传图片' }}</span>
+        <input type="file" accept="image/*" @change="onFile" />
+      </label>
+      <button class="submit" @click="submit" :disabled="busy || !file">
+        {{ busy ? '识别中...' : '提交识别' }}
+      </button>
+      <button class="submit reset" @click="reset">清空记录</button>
+      <div class="msg" :class="['show', msgType]" v-if="msg">{{ msg }}</div>
+      <h3>通行记录</h3>
+      <div class="records">
+        <div class="record" :class="r.type" v-for="r in records" :key="r.id">
+          {{ r.time }} · {{ r.type==='entry'?'进场':'离场' }} · {{ r.plate }}
+          <span v-if="r.space"> · {{ r.space }}</span>
+        </div>
+        <div v-if="!records.length" style="color:#999;padding:8px;">暂无记录</div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const { createApp, ref, reactive, computed, onMounted } = Vue;
+createApp({
+  setup() {
+    const BACKEND = '';
+    const mode = ref('entry');
+    const file = ref(null);
+    const fileName = ref('');
+    const busy = ref(false);
+    const msg = ref('');
+    const msgType = ref('success');
+    const cameraSrc = ref(BACKEND + '/video');
+    const records = ref([]);
+    const state = reactive({ total: 24, occupied: 0, free: 24, spaces: {} });
+    const rows = ['A','B','C','D'];
+    const cols = [1,2,3,4,5,6];
+    const animCar = reactive({ show: false, style: {}, text: '' });
+    let recordId = 0;
+
+    const showMsg = (m, type='success') => {
+      msg.value = m; msgType.value = type;
+      setTimeout(() => msg.value = '', 4000);
+    };
+
+    const addRecord = (r) => records.value.unshift({ ...r, id: ++recordId,
+      time: new Date().toLocaleTimeString() });
+
+    const onFile = (e) => {
+      file.value = e.target.files[0];
+      fileName.value = file.value?.name || '';
+    };
+
+    const submit = async () => {
+      if (!file.value) return;
+      busy.value = true;
+      const fd = new FormData();
+      fd.append('file', file.value);
+      try {
+        const res = await fetch(BACKEND + '/' + mode.value, { method: 'POST', body: fd });
+        const data = await res.json();
+        if (res.ok) {
+          showMsg((mode.value==='entry'?'进场':'离场')+'成功：' + data.plate);
+        } else {
+          showMsg(data.detail || '识别失败', 'error');
+        }
+      } catch (e) {
+        showMsg('请求失败：' + e.message, 'error');
+      } finally {
+        busy.value = false;
+        file.value = null; fileName.value = '';
+      }
+    };
+
+    const snapshot = async () => {
+      busy.value = true;
+      try {
+        const res = await fetch(BACKEND + '/snapshot');
+        if (!res.ok) throw new Error('拍照失败');
+        const blob = await res.blob();
+        file.value = new File([blob], 'snapshot.jpg', { type: 'image/jpeg' });
+        fileName.value = 'snapshot.jpg';
+        showMsg('拍照成功，请点击「提交识别」');
+      } catch (e) {
+        showMsg('拍照失败：' + e.message, 'error');
+      } finally {
+        busy.value = false;
+      }
+    };
+
+    const reset = async () => {
+      if (!confirm('确认清空所有停车记录？')) return;
+      await fetch(BACKEND + '/reset', { method: 'POST' });
+      Object.assign(state, { occupied: 0, free: 24, spaces: {} });
+      showMsg('已清空记录');
+    };
+
+    const applyEntry = (ev) => {
+      state.spaces[ev.space] = { plate: ev.plate, entry_time: ev.entry_time };
+      state.occupied++; state.free--;
+      addRecord({ type: 'entry', plate: ev.plate, space: ev.space });
+      animateCar(ev.space, ev.plate);
+    };
+
+    const applyExit = (ev) => {
+      delete state.spaces[ev.space];
+      state.occupied = Math.max(0, state.occupied - 1);
+      state.free = Math.min(24, state.free + 1);
+      addRecord({ type: 'exit', plate: ev.plate, space: ev.space });
+    };
+
+    const animateCar = (space, plate) => {
+      const grid = document.querySelector('.grid');
+      const target = grid.querySelector(`.space.occupied`);
+      const park = document.querySelector('.parking');
+      if (!target || !park) return;
+      const rect = target.getBoundingClientRect();
+      const prect = park.getBoundingClientRect();
+      animCar.text = plate;
+      animCar.style = {
+        display: 'block',
+        left: (rect.left - prect.left) + 'px',
+        top: (rect.top - prect.top + rect.height/2 - 11) + 'px',
+      };
+      // 从左侧驶入
+      setTimeout(() => {
+        animCar.style = {
+          display: 'block',
+          left: (rect.left - prect.left - 120) + 'px',
+          top: (rect.top - prect.top + rect.height/2 - 11) + 'px',
+        };
+      }, 10);
+      setTimeout(() => {
+        animCar.style = {
+          display: 'block',
+          left: (rect.left - prect.left) + 'px',
+          top: (rect.top - prect.top + rect.height/2 - 11) + 'px',
+        };
+      }, 1100);
+      setTimeout(() => { animCar.show = false; }, 2300);
+      animCar.show = true;
+    };
+
+    onMounted(async () => {
+      try {
+        const res = await fetch(BACKEND + '/state');
+        Object.assign(state, await res.json());
+      } catch (e) { console.error(e); }
+      const es = new EventSource(BACKEND + '/stream');
+      es.onopen = () => console.log('SSE connected');
+      es.addEventListener('state', (e) => Object.assign(state, JSON.parse(e.data)));
+      es.addEventListener('entry', (e) => applyEntry(JSON.parse(e.data)));
+      es.addEventListener('exit', (e) => applyExit(JSON.parse(e.data)));
+      es.addEventListener('reset', (e) => {
+        JSON.parse(e.data); // 解析但不用，仅触发重置
+        Object.assign(state, { occupied: 0, free: 24, spaces: {} });
+      });
+    });
+
+    return { mode, file, fileName, busy, msg, msgType, cameraSrc, records,
+      state, rows, cols, animCar, onFile, submit, snapshot, reset };
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
