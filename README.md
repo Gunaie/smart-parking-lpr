@@ -2,6 +2,10 @@
 
 > 基于 YOLO11n + HyperLPR3 的端到端车牌检测识别与停车管理全栈应用。在 Windows CPU 笔记本上自训练模型、完成前后端开发与部署。
 
+![CI](https://github.com/USERNAME/REPO/actions/workflows/ci.yml/badge.svg)
+
+> 推送到 GitHub 后，将 `USERNAME/REPO` 替换为你的仓库地址即可显示 CI 状态。
+
 ---
 
 ## 架构概览
@@ -127,15 +131,27 @@ docker compose up -d
 ## 测试
 
 ```powershell
-# 识别流水线精度回归
-.\.venv\Scripts\python.exe -m pytest tests/test_pipeline.py -v
+# 完整测试（需 best.pt + 服务运行）
+.\.venv\Scripts\python.exe -m pytest tests/ -v
 
-# API 接口集成测试（需服务在 8765 运行）
-.\.venv\Scripts\python.exe -m pytest tests/test_api.py -v
+# CI 模式（跳过需模型/服务的测试，6 passed / 18 skipped）
+.\.venv\Scripts\python.exe -m pytest tests/ -v -m "not requires_model and not requires_server"
+
+# 仅识别流水线精度回归
+.\.venv\Scripts\python.exe -m pytest tests/test_pipeline.py -v
 
 # 性能基准
 .\.venv\Scripts\python.exe -m pytest tests/test_benchmark.py -v -s
 ```
+
+**pytest markers**
+
+| marker | 含义 |
+|--------|------|
+| `requires_model` | 需要 `models/best.pt`（CI 环境无模型时自动跳过） |
+| `requires_server` | 需要服务运行在 localhost:8765 |
+
+**CI/CD**：`.github/workflows/ci.yml` — push/PR 时自动安装依赖并运行 CI 模式测试。
 
 **当前基准（CPU）**
 
