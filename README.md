@@ -2,9 +2,7 @@
 
 > 基于 YOLO11n + HyperLPR3 的端到端车牌检测识别与停车管理全栈应用。在 Windows CPU 笔记本上自训练模型、完成前后端开发与部署。
 
-![CI](https://github.com/USERNAME/REPO/actions/workflows/ci.yml/badge.svg)
-
-> 推送到 GitHub 后，将 `USERNAME/REPO` 替换为你的仓库地址即可显示 CI 状态。
+![CI](https://github.com/Gunaie/smart-parking-lpr/actions/workflows/ci.yml/badge.svg)
 
 ---
 
